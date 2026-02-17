@@ -7,7 +7,9 @@ console.log('X Bookmark Saver: Background script loaded');
 async function authenticate() {
   try {
     // インタラクティブモードでトークンを取得
-    const token = await chrome.identity.getAuthToken({ interactive: true });
+    // Chrome 105+ では { token, grantedScopes } オブジェクトを返す; 旧版は文字列
+    const result = await chrome.identity.getAuthToken({ interactive: true });
+    const token = (typeof result === 'object' && result !== null) ? result.token : result;
 
     if (!token) {
       throw new Error('認証トークンの取得に失敗しました');
