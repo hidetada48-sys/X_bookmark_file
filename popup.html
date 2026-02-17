@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>X Bookmark Saver</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <h1>X Bookmark Saver</h1>
+
+    <div class="status" id="status">
+      準備完了
+    </div>
+
+    <div class="auth-section">
+      <button id="authButton" class="btn btn-primary">
+        Google認証
+      </button>
+      <div id="authStatus" class="auth-status"></div>
+    </div>
+
+    <div class="action-section">
+      <p class="info">
+        現在のページがブックマーク一覧ページであることを確認してください。
+      </p>
+
+      <div class="input-group">
+        <label for="maxBookmarks">取得する投稿数（0=全て）:</label>
+        <input type="number" id="maxBookmarks" value="0" min="0" step="10">
+      </div>
+
+      <button id="collectButton" class="btn btn-success" disabled>
+        ブックマークを収集
+      </button>
+
+      <div class="progress-container" id="progressContainer" style="display: none;">
+        <div class="progress-bar">
+          <div class="progress-fill" id="progressFill"></div>
+        </div>
+        <div class="progress-text" id="progressText">0 / 0</div>
+      </div>
+    </div>
+
+    <div class="export-section">
+      <h3>エクスポート設定</h3>
+
+      <div class="input-group">
+        <label for="format">形式:</label>
+        <select id="format">
+          <option value="markdown">Markdown (.md)</option>
+          <option value="json">JSON (.json)</option>
+          <option value="text">Text (.txt)</option>
+        </select>
+      </div>
+
+      <div class="checkbox-group">
+        <label>
+          <input type="checkbox" id="includeImages" checked>
+          画像を含める
+        </label>
+        <label>
+          <input type="checkbox" id="includeThreads" checked>
+          スレッド全体を含める
+        </label>
+      </div>
+
+      <button id="exportButton" class="btn btn-primary" disabled>
+        Google Driveに保存
+      </button>
+    </div>
+
+    <div class="log-section">
+      <h3>ログ</h3>
+      <div id="log" class="log"></div>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
