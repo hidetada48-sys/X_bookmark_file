@@ -3,40 +3,53 @@
 console.log('X Bookmark Saver: Content script loaded');
 
 // ブックマーク収集のメインロジック
-// collectedIds: すでに収集済みのツイートURLのSet（差分収集用）
-async function collectBookmarks(maxBookmarks, includeThreads, collectedIds = new Set()) {
+// limitMode : 'count'（件数）| 'days'（日数）| 'all'（制限なし）
+// limitCount: 件数モード時の上限件数
+// limitDays : 日数モード時の日数（この日数以内のみ取得）
+// collectedIds: すでに収集済みのツイートIDのSet（差分収集用）
+async function collectBookmarks(limitMode, limitCount, limitDays, includeThreads, collectedIds = new Set()) {
   const bookmarks = [];
   const newIds = []; // 今回新たに収集したID
 
+  // 日付モード用: 何日前までを収集対象とするか
+  const dateLimit = limitMode === 'days'
+    ? new Date(Date.now() - limitDays * 24 * 60 * 60 * 1000)
+    : null;
+
+  // 件数モード用: 上限件数
+  const maxCount = limitMode === 'count' ? limitCount : 0;
+
+  // 進捗表示用の想定合計（件数モード時のみ確定値）
+  const totalHint = maxCount > 0 ? maxCount : '?';
+
   try {
-    // ブックマークページかチェック
     if (!window.location.href.includes('/bookmarks')) {
       throw new Error('ブックマークページで実行してください');
     }
 
-    console.log(`ブックマーク収集を開始... (収集済み: ${collectedIds.size}件)`);
+    const modeLabel = limitMode === 'count' ? `最新${limitCount}件`
+                    : limitMode === 'days'  ? `直近${limitDays}日以内`
+                    : '制限なし';
+    console.log(`ブックマーク収集を開始... モード: ${modeLabel} / 収集済み: ${collectedIds.size}件`);
 
-    // スクロールしながらツイートを収集
     let lastCount = 0;
     let sameCountIterations = 0;
-    const maxSameCount = 5; // 同じ数が続いたら終了
-    let hitCollected = false; // 収集済みに達したフラグ
+    const maxSameCount = 5;
+    let hitCollected = false;
+    let hitDateLimit = false;
 
     while (true) {
-      // ツイート要素を取得
       const tweetElements = document.querySelectorAll('article[data-testid="tweet"]');
 
-      // 各ツイートから情報を抽出
       for (const tweetElement of tweetElements) {
-        if (maxBookmarks > 0 && bookmarks.length >= maxBookmarks) {
+        // 件数上限チェック
+        if (maxCount > 0 && bookmarks.length >= maxCount) {
           break;
         }
 
-        // すでに処理済みかチェック（今回のセッション内の重複排除）
         if (tweetElement.hasAttribute('data-processed')) {
           continue;
         }
-
         tweetElement.setAttribute('data-processed', 'true');
 
         const bookmarkData = extractTweetData(tweetElement);
@@ -44,10 +57,19 @@ async function collectBookmarks(maxBookmarks, includeThreads, collectedIds = new
           continue;
         }
 
-        // ツイートIDをURLから抽出（差分判定キー）
+        // 日付フィルタ（days モード）
+        if (dateLimit && bookmarkData.timestamp) {
+          const tweetDate = new Date(bookmarkData.timestamp);
+          if (!isNaN(tweetDate) && tweetDate < dateLimit) {
+            // XのTLは新しい順なので、ここより下は全て対象外
+            hitDateLimit = true;
+            break;
+          }
+        }
+
         const tweetId = extractTweetId(bookmarkData.url);
 
-        // 収集済みIDに含まれる場合はスキップ
+        // 差分チェック（収集済みIDをスキップ）
         if (tweetId && collectedIds.has(tweetId)) {
           hitCollected = true;
           continue;
@@ -56,7 +78,6 @@ async function collectBookmarks(maxBookmarks, includeThreads, collectedIds = new
         bookmarks.push(bookmarkData);
         if (tweetId) newIds.push(tweetId);
 
-        // スレッドの取得
         if (includeThreads) {
           const thread = await extractThread(tweetElement);
           if (thread && thread.length > 0) {
@@ -64,26 +85,28 @@ async function collectBookmarks(maxBookmarks, includeThreads, collectedIds = new
           }
         }
 
-        // 進捗を通知
         chrome.runtime.sendMessage({
           action: 'updateProgress',
           current: bookmarks.length,
-          total: maxBookmarks || '?'
+          total: totalHint
         });
       }
 
-      // 目標数に達したら終了
-      if (maxBookmarks > 0 && bookmarks.length >= maxBookmarks) {
+      // 終了判定
+      if (maxCount > 0 && bookmarks.length >= maxCount) {
+        console.log(`件数上限（${maxCount}件）に到達`);
         break;
       }
-
-      // 収集済みのツイートに達した場合は終了（新着は全て収集完了）
+      if (hitDateLimit) {
+        console.log(`日付上限（${limitDays}日前）に到達`);
+        break;
+      }
       if (hitCollected) {
         console.log('収集済みブックマークに到達。差分収集完了');
         break;
       }
 
-      // 新しいツイートが読み込まれたかチェック
+      // スクロール終端の検知
       if (bookmarks.length === lastCount) {
         sameCountIterations++;
         if (sameCountIterations >= maxSameCount) {
@@ -95,9 +118,8 @@ async function collectBookmarks(maxBookmarks, includeThreads, collectedIds = new
         lastCount = bookmarks.length;
       }
 
-      // スクロールして次のツイートを読み込み
       window.scrollTo(0, document.body.scrollHeight);
-      await sleep(1500); // 読み込み待機
+      await sleep(1500);
     }
 
     console.log(`収集完了: ${bookmarks.length}件（新規）`);
@@ -257,16 +279,18 @@ function sleep(ms) {
 // メッセージリスナー
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'collectBookmarks') {
-    // 収集済みIDをSetに変換して渡す
     const collectedIds = new Set(message.collectedIds || []);
+    const limitMode  = message.limitMode  || 'all';
+    const limitCount = message.limitCount || 50;
+    const limitDays  = message.limitDays  || 30;
 
-    collectBookmarks(message.maxBookmarks, message.includeThreads, collectedIds)
+    collectBookmarks(limitMode, limitCount, limitDays, message.includeThreads, collectedIds)
       .then(({ bookmarks, newIds }) => {
         sendResponse({ success: true, bookmarks, newIds });
       })
       .catch(error => {
         sendResponse({ success: false, error: error.message });
       });
-    return true; // 非同期レスポンスを示す
+    return true;
   }
 });

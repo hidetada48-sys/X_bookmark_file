@@ -9,7 +9,11 @@ const elements = {
   authStatus: document.getElementById('authStatus'),
   collectButton: document.getElementById('collectButton'),
   exportButton: document.getElementById('exportButton'),
-  maxBookmarks: document.getElementById('maxBookmarks'),
+  limitMode: document.getElementById('limitMode'),
+  limitCount: document.getElementById('limitCount'),
+  limitDays: document.getElementById('limitDays'),
+  limitCountGroup: document.getElementById('limitCountGroup'),
+  limitDaysGroup: document.getElementById('limitDaysGroup'),
   format: document.getElementById('format'),
   includeImages: document.getElementById('includeImages'),
   includeThreads: document.getElementById('includeThreads'),
@@ -18,6 +22,13 @@ const elements = {
   progressText: document.getElementById('progressText'),
   log: document.getElementById('log')
 };
+
+// 収集範囲セレクト変更で対応入力欄を切り替え
+elements.limitMode.addEventListener('change', () => {
+  const mode = elements.limitMode.value;
+  elements.limitCountGroup.style.display = mode === 'count' ? 'block' : 'none';
+  elements.limitDaysGroup.style.display  = mode === 'days'  ? 'block' : 'none';
+});
 
 // ログ出力
 function addLog(message, type = 'info') {
@@ -82,7 +93,9 @@ elements.collectButton.addEventListener('click', async () => {
     elements.progressContainer.style.display = 'block';
     updateProgress(0, 0);
 
-    const maxBookmarks = parseInt(elements.maxBookmarks.value) || 0;
+    const limitMode  = elements.limitMode.value;
+    const limitCount = parseInt(elements.limitCount.value) || 50;
+    const limitDays  = parseInt(elements.limitDays.value)  || 30;
     const includeThreads = elements.includeThreads.checked;
 
     // コンテンツスクリプトにメッセージ送信
@@ -92,18 +105,23 @@ elements.collectButton.addEventListener('click', async () => {
       throw new Error('X/Twitterのページで実行してください');
     }
 
-    updateStatus('収集中...', 'warning');
+    const modeLabel = limitMode === 'count' ? `最新${limitCount}件`
+                    : limitMode === 'days'  ? `直近${limitDays}日以内`
+                    : '制限なし';
+    updateStatus(`収集中... （${modeLabel}）`, 'warning');
 
     // 収集済みIDを取得して差分収集を実行
     const collectedIds = window._collectedIds || [];
-    addLog(`収集済み: ${collectedIds.length}件 / 未収集分のみ取得`, 'info');
+    addLog(`収集済み: ${collectedIds.length}件 / 範囲: ${modeLabel}`, 'info');
 
-    // コンテンツスクリプトにブックマーク収集を指示（差分モード）
+    // コンテンツスクリプトにブックマーク収集を指示
     const response = await chrome.tabs.sendMessage(tab.id, {
       action: 'collectBookmarks',
-      maxBookmarks,
+      limitMode,
+      limitCount,
+      limitDays,
       includeThreads,
-      collectedIds  // 収集済みIDを渡す
+      collectedIds
     });
 
     if (response.success) {

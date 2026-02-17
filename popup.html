@@ -27,8 +27,24 @@
       </p>
 
       <div class="input-group">
-        <label for="maxBookmarks">取得する投稿数（0=全て）:</label>
-        <input type="number" id="maxBookmarks" value="0" min="0" step="10">
+        <label for="limitMode">収集範囲:</label>
+        <select id="limitMode">
+          <option value="count" selected>件数で指定（最新からN件）</option>
+          <option value="days">日数で指定（直近N日以内）</option>
+          <option value="all">制限なし（全ての未収集）</option>
+        </select>
+      </div>
+
+      <div class="input-group" id="limitCountGroup">
+        <label for="limitCount">取得件数:</label>
+        <input type="number" id="limitCount" value="50" min="1" step="10">
+        <span class="hint">件</span>
+      </div>
+
+      <div class="input-group" id="limitDaysGroup" style="display:none;">
+        <label for="limitDays">直近の日数:</label>
+        <input type="number" id="limitDays" value="30" min="1" step="1">
+        <span class="hint">日以内</span>
       </div>
 
       <button id="collectButton" class="btn btn-success" disabled>

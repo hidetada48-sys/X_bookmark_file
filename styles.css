@@ -151,6 +151,12 @@ h3 {
   background-color: #9b1414;
 }
 
+.hint {
+  font-size: 12px;
+  color: #666;
+  margin-left: 4px;
+}
+
 .progress-container {
   margin-top: 15px;
 }
