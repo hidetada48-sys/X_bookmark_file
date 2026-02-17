@@ -94,19 +94,41 @@ elements.collectButton.addEventListener('click', async () => {
 
     updateStatus('収集中...', 'warning');
 
-    // コンテンツスクリプトにブックマーク収集を指示
+    // 収集済みIDを取得して差分収集を実行
+    const collectedIds = window._collectedIds || [];
+    addLog(`収集済み: ${collectedIds.length}件 / 未収集分のみ取得`, 'info');
+
+    // コンテンツスクリプトにブックマーク収集を指示（差分モード）
     const response = await chrome.tabs.sendMessage(tab.id, {
       action: 'collectBookmarks',
       maxBookmarks,
-      includeThreads
+      includeThreads,
+      collectedIds  // 収集済みIDを渡す
     });
 
     if (response.success) {
       collectedBookmarks = response.bookmarks;
-      addLog(`${collectedBookmarks.length}件のブックマークを収集しました`, 'success');
-      updateStatus(`${collectedBookmarks.length}件収集完了`);
-      elements.exportButton.disabled = false;
-      updateProgress(collectedBookmarks.length, collectedBookmarks.length);
+      const newIds = response.newIds || [];
+
+      if (collectedBookmarks.length === 0) {
+        addLog('未収集のブックマークはありません', 'info');
+        updateStatus('新着なし（全て収集済み）');
+      } else {
+        addLog(`${collectedBookmarks.length}件の新規ブックマークを収集しました`, 'success');
+        updateStatus(`新規 ${collectedBookmarks.length}件収集完了`);
+        elements.exportButton.disabled = false;
+        updateProgress(collectedBookmarks.length, collectedBookmarks.length);
+
+        // 新しいIDをbackground.jsに保存
+        const saveResponse = await chrome.runtime.sendMessage({
+          action: 'saveCollectedIds',
+          newIds
+        });
+        if (saveResponse.success) {
+          addLog(`収集済み合計: ${saveResponse.total}件`, 'info');
+          window._collectedIds = [...collectedIds, ...newIds];
+        }
+      }
     } else {
       throw new Error(response.error || '収集に失敗しました');
     }
@@ -270,13 +292,43 @@ function getMimeType(format) {
   return mimeTypes[format] || 'text/plain';
 }
 
-// 初期化時に認証状態をチェック
-chrome.storage.local.get(['accessToken'], (result) => {
-  if (result.accessToken) {
+// 初期化時に認証状態と収集済み件数をチェック
+async function initialize() {
+  // 認証状態チェック
+  const stored = await chrome.storage.local.get(['accessToken']);
+  if (stored.accessToken) {
     isAuthenticated = true;
     elements.authStatus.textContent = '✓ 認証済み';
     elements.collectButton.disabled = false;
-    updateStatus('準備完了');
+  }
+
+  // 収集済みIDの件数を表示
+  const response = await chrome.runtime.sendMessage({ action: 'getCollectedIds' });
+  if (response.success) {
+    const count = response.ids.length;
+    if (count > 0) {
+      updateStatus(`収集済み: ${count}件 / 未収集分のみ取得します`);
+      addLog(`収集済みブックマーク: ${count}件`, 'info');
+    } else {
+      updateStatus('初回収集 - 全ブックマークを取得します');
+    }
+    // 件数をグローバルに保持
+    window._collectedIds = response.ids;
+  }
+}
+
+initialize();
+
+// 収集履歴リセット
+document.getElementById('resetButton').addEventListener('click', async () => {
+  if (!confirm('収集済み履歴をリセットします。次回収集時に全ブックマークを再取得します。よろしいですか？')) {
+    return;
+  }
+  const response = await chrome.runtime.sendMessage({ action: 'resetCollectedIds' });
+  if (response.success) {
+    window._collectedIds = [];
+    addLog('収集履歴をリセットしました', 'info');
+    updateStatus('初回収集 - 全ブックマークを取得します');
   }
 });
 

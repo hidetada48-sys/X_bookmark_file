@@ -200,6 +200,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true; // 非同期レスポンスを有効化
   }
 
+  // 収集済みIDを取得（ポップアップ起動時に呼ばれる）
+  if (message.action === 'getCollectedIds') {
+    getCollectedIds()
+      .then(ids => sendResponse({ success: true, ids }))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
+
+  // 収集済みIDを追記保存（収集完了後に呼ばれる）
+  if (message.action === 'saveCollectedIds') {
+    saveCollectedIds(message.newIds || [])
+      .then(total => sendResponse({ success: true, total }))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
+
+  // 収集履歴をリセット
+  if (message.action === 'resetCollectedIds') {
+    resetCollectedIds()
+      .then(() => sendResponse({ success: true }))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
+
   // 進捗更新の通知（popup.jsに転送）
   if (message.action === 'updateProgress') {
     // 全てのタブにブロードキャスト
@@ -208,6 +232,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   return false;
 });
+
+// 収集済みツイートIDを取得
+async function getCollectedIds() {
+  const result = await chrome.storage.local.get(['collectedTweetIds']);
+  return result.collectedTweetIds || [];
+}
+
+// 収集済みツイートIDを追記保存
+async function saveCollectedIds(newIds) {
+  const existing = await getCollectedIds();
+  const merged = Array.from(new Set([...existing, ...newIds]));
+  await chrome.storage.local.set({ collectedTweetIds: merged });
+  return merged.length;
+}
+
+// 収集履歴をリセット
+async function resetCollectedIds() {
+  await chrome.storage.local.remove(['collectedTweetIds']);
+}
 
 // 拡張機能インストール時
 chrome.runtime.onInstalled.addListener((details) => {
