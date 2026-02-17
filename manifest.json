@@ -5,12 +5,12 @@
   "description": "Xのブックマークした投稿をGoogle Driveに保存してNotebookLMで活用",
   "permissions": [
     "storage",
-    "identity",
-    "https://www.googleapis.com/*"
+    "identity"
   ],
   "host_permissions": [
     "https://x.com/*",
-    "https://twitter.com/*"
+    "https://twitter.com/*",
+    "https://www.googleapis.com/*"
   ],
   "action": {
     "default_popup": "popup.html",
