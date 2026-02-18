@@ -3,16 +3,37 @@
 
 console.log('X Bookmark Saver: Background script loaded');
 
-// Google OAuth認証
+// OAuth設定（ウェブ アプリケーション型）
+const CLIENT_ID = '1088639736607-aq5gaog56dogh31v1dd47g65duqv024a.apps.googleusercontent.com';
+const REDIRECT_URI = 'https://ebebfammiobopocojlfjmcgkemhiihah.chromiumapp.org/';
+const SCOPE = 'https://www.googleapis.com/auth/drive.file';
+
+// Google OAuth認証（launchWebAuthFlow を使用）
 async function authenticate() {
   try {
-    // インタラクティブモードでトークンを取得
-    // Chrome 105+ では { token, grantedScopes } オブジェクトを返す; 旧版は文字列
-    const result = await chrome.identity.getAuthToken({ interactive: true });
-    const token = (typeof result === 'object' && result !== null) ? result.token : result;
+    const authUrl =
+      'https://accounts.google.com/o/oauth2/auth' +
+      `?client_id=${encodeURIComponent(CLIENT_ID)}` +
+      `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
+      `&response_type=token` +
+      `&scope=${encodeURIComponent(SCOPE)}`;
+
+    const redirectUrl = await chrome.identity.launchWebAuthFlow({
+      url: authUrl,
+      interactive: true
+    });
+
+    if (!redirectUrl) {
+      throw new Error('認証がキャンセルされました');
+    }
+
+    // リダイレクト URL のフラグメントからアクセストークンを取得
+    const url = new URL(redirectUrl);
+    const params = new URLSearchParams(url.hash.slice(1));
+    const token = params.get('access_token');
 
     if (!token) {
-      throw new Error('認証トークンの取得に失敗しました');
+      throw new Error('アクセストークンの取得に失敗しました');
     }
 
     // トークンを保存
@@ -25,7 +46,11 @@ async function authenticate() {
     console.error('認証エラー:', error);
 
     // ユーザーがキャンセルした場合
-    if (error.message.includes('canceled') || error.message.includes('cancelled')) {
+    if (
+      error.message.includes('canceled') ||
+      error.message.includes('cancelled') ||
+      error.message.includes('キャンセル')
+    ) {
       throw new Error('認証がキャンセルされました');
     }
 
@@ -40,15 +65,13 @@ async function getStoredToken() {
   return result.accessToken;
 }
 
-// トークンをリフレッシュ
+// トークンをリフレッシュ（古いトークンを削除して再認証）
 async function refreshToken() {
   try {
-    // 古いトークンを削除
-    await chrome.identity.removeCachedAuthToken({
-      token: await getStoredToken()
-    });
+    // 保存済みトークンをクリア
+    await chrome.storage.local.remove(['accessToken']);
 
-    // 新しいトークンを取得
+    // 再認証
     return await authenticate();
 
   } catch (error) {
