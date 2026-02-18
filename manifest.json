@@ -33,12 +33,6 @@
       "run_at": "document_idle"
     }
   ],
-  "oauth2": {
-    "client_id": "1088639736607-aq5gaog56dogh31v1dd47g65duqv024a.apps.googleusercontent.com",
-    "scopes": [
-      "https://www.googleapis.com/auth/drive.file"
-    ]
-  },
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
