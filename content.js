@@ -52,7 +52,7 @@ async function collectBookmarks(limitMode, limitCount, limitDays, includeThreads
         }
         tweetElement.setAttribute('data-processed', 'true');
 
-        const bookmarkData = extractTweetData(tweetElement);
+        const bookmarkData = await extractTweetData(tweetElement);
         if (!bookmarkData || !bookmarkData.url) {
           continue;
         }
@@ -138,8 +138,32 @@ function extractTweetId(url) {
   return match ? match[1] : null;
 }
 
+// 「さらに表示」ボタンをクリックして全文を展開する
+async function expandShowMore(tweetElement) {
+  // X の「もっと見る」リンクのセレクタ候補を順に試す
+  const selectors = [
+    '[data-testid="tweet-text-show-more-link"]',
+    '[data-testid="tweetText"] [role="link"]',
+    '[data-testid="tweetText"] a',
+  ];
+
+  for (const selector of selectors) {
+    const btn = tweetElement.querySelector(selector);
+    if (btn) {
+      const label = btn.textContent.trim();
+      // 「もっと見る」「Show more」のいずれかのテキストを持つ場合のみクリック
+      if (label.includes('もっと見る') || label.toLowerCase().includes('show more')) {
+        btn.click();
+        await sleep(600); // 展開を待つ
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 // ツイートデータを抽出
-function extractTweetData(tweetElement) {
+async function extractTweetData(tweetElement) {
   try {
     const data = {
       author: {},
@@ -166,7 +190,8 @@ function extractTweetData(tweetElement) {
       }
     }
 
-    // ツイート本文
+    // 「さらに表示」を展開してから本文を取得
+    await expandShowMore(tweetElement);
     const tweetTextElement = tweetElement.querySelector('[data-testid="tweetText"]');
     if (tweetTextElement) {
       data.text = tweetTextElement.textContent;
@@ -178,13 +203,13 @@ function extractTweetData(tweetElement) {
       data.timestamp = timeElement.getAttribute('datetime') || timeElement.textContent;
     }
 
-    // 画像
+    // 画像（URLとして保持）
     const imageElements = tweetElement.querySelectorAll('[data-testid="tweetPhoto"] img');
     imageElements.forEach(img => {
       const src = img.getAttribute('src');
       if (src && !src.includes('profile_images')) {
         data.images.push({
-          url: src.split('?')[0], // クエリパラメータを除去
+          url: src.split('?')[0],
           alt: img.getAttribute('alt') || ''
         });
       }
@@ -202,11 +227,11 @@ function extractTweetData(tweetElement) {
       }
     });
 
-    // ツイートURL
+    // ツイートURL（相対パス・絶対パス両対応）
     const linkElement = tweetElement.querySelector('a[href*="/status/"]');
     if (linkElement) {
       const href = linkElement.getAttribute('href');
-      data.url = `https://x.com${href}`;
+      data.url = href.startsWith('http') ? href : `https://x.com${href}`;
     }
 
     // エンゲージメント指標
@@ -220,9 +245,9 @@ function extractTweetData(tweetElement) {
     Object.keys(metrics).forEach(key => {
       if (metrics[key]) {
         const text = metrics[key].textContent;
-        const match = text.match(/\d+/);
+        const match = text.match(/[\d,]+/);
         if (match) {
-          data.metrics[key] = parseInt(match[0]);
+          data.metrics[key] = parseInt(match[0].replace(/,/g, ''));
         }
       }
     });

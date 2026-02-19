@@ -170,10 +170,9 @@ elements.exportButton.addEventListener('click', async () => {
     updateStatus('エクスポート中...', 'warning');
 
     const format = elements.format.value;
-    const includeImages = elements.includeImages.checked;
 
     // データを整形
-    const formattedData = formatBookmarks(collectedBookmarks, format, includeImages);
+    const formattedData = formatBookmarks(collectedBookmarks, format);
 
     // ファイル名の生成
     const timestamp = new Date().toISOString().replace(/:/g, '-').split('.')[0];
@@ -209,46 +208,61 @@ elements.exportButton.addEventListener('click', async () => {
 });
 
 // ブックマークをフォーマット
-function formatBookmarks(bookmarks, format, includeImages) {
+function formatBookmarks(bookmarks, format) {
   if (format === 'markdown') {
-    return formatAsMarkdown(bookmarks, includeImages);
+    return formatAsMarkdown(bookmarks);
   } else if (format === 'json') {
     return JSON.stringify(bookmarks, null, 2);
   } else {
-    return formatAsText(bookmarks, includeImages);
+    return formatAsText(bookmarks, false);
   }
 }
 
 // Markdown形式
-function formatAsMarkdown(bookmarks, includeImages) {
+function formatAsMarkdown(bookmarks) {
   let md = `# X Bookmarks Export\n\n`;
   md += `エクスポート日時: ${new Date().toLocaleString('ja-JP')}\n`;
   md += `総数: ${bookmarks.length}件\n\n`;
   md += `---\n\n`;
 
   bookmarks.forEach((bookmark, index) => {
-    md += `## ${index + 1}. ${bookmark.author.name} (@${bookmark.author.username})\n\n`;
-    md += `**投稿日時**: ${bookmark.timestamp}\n\n`;
+    // ヘッダー
+    md += `## ${index + 1}. ${bookmark.author.name || ''}（@${bookmark.author.username || ''}）\n\n`;
 
+    // メタデータをまとめて表示
+    const meta = [];
+    if (bookmark.timestamp) {
+      const d = new Date(bookmark.timestamp);
+      meta.push(`投稿日時: ${isNaN(d) ? bookmark.timestamp : d.toLocaleString('ja-JP')}`);
+    }
+    if (bookmark.url) {
+      meta.push(`URL: ${bookmark.url}`);
+    }
+    const m = bookmark.metrics || {};
+    const metricParts = [];
+    if (m.replies  != null) metricParts.push(`返信 ${m.replies}`);
+    if (m.retweets != null) metricParts.push(`RT ${m.retweets}`);
+    if (m.likes    != null) metricParts.push(`いいね ${m.likes}`);
+    if (m.views    != null) metricParts.push(`閲覧 ${m.views}`);
+    if (metricParts.length > 0) meta.push(metricParts.join(' / '));
+
+    meta.forEach(line => { md += `- ${line}\n`; });
+    md += `\n`;
+
+    // 本文
     if (bookmark.text) {
       md += `${bookmark.text}\n\n`;
     }
 
-    if (includeImages && bookmark.images && bookmark.images.length > 0) {
-      md += `### 画像\n\n`;
-      bookmark.images.forEach((img, i) => {
-        md += `![画像${i + 1}](${img.url})\n\n`;
-      });
-    }
-
+    // スレッド
     if (bookmark.thread && bookmark.thread.length > 0) {
-      md += `### スレッド (${bookmark.thread.length}件)\n\n`;
+      md += `### スレッド（${bookmark.thread.length}件）\n\n`;
       bookmark.thread.forEach((tweet, i) => {
-        md += `#### ${i + 1}. ${tweet.author}\n\n`;
-        md += `${tweet.text}\n\n`;
+        md += `> **${tweet.author}**\n> ${tweet.text}\n\n`;
       });
     }
 
+    // 元投稿リンク
     if (bookmark.url) {
       md += `[元の投稿を見る](${bookmark.url})\n\n`;
     }
