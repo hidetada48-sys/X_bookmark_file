@@ -101,8 +101,8 @@ elements.collectButton.addEventListener('click', async () => {
     // コンテンツスクリプトにメッセージ送信
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
-    if (!tab.url.includes('x.com') && !tab.url.includes('twitter.com')) {
-      throw new Error('X/Twitterのページで実行してください');
+    if (!tab.url.includes('/bookmarks')) {
+      throw new Error('x.com/bookmarks を開いてから実行してください');
     }
 
     const modeLabel = limitMode === 'count' ? `最新${limitCount}件`
@@ -115,14 +115,25 @@ elements.collectButton.addEventListener('click', async () => {
     addLog(`収集済み: ${collectedIds.length}件 / 範囲: ${modeLabel}`, 'info');
 
     // コンテンツスクリプトにブックマーク収集を指示
-    const response = await chrome.tabs.sendMessage(tab.id, {
-      action: 'collectBookmarks',
-      limitMode,
-      limitCount,
-      limitDays,
-      includeThreads,
-      collectedIds
-    });
+    let response;
+    try {
+      response = await chrome.tabs.sendMessage(tab.id, {
+        action: 'collectBookmarks',
+        limitMode,
+        limitCount,
+        limitDays,
+        includeThreads,
+        collectedIds
+      });
+    } catch (e) {
+      if (e.message && e.message.includes('Could not establish connection')) {
+        throw new Error(
+          'コンテンツスクリプトに接続できません。\n' +
+          'ページを再読み込み（F5）してからもう一度お試しください。'
+        );
+      }
+      throw e;
+    }
 
     if (response.success) {
       collectedBookmarks = response.bookmarks;
