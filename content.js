@@ -140,25 +140,28 @@ function extractTweetId(url) {
 
 // 「さらに表示」ボタンをクリックして全文を展開する
 async function expandShowMore(tweetElement) {
-  // X の「もっと見る」リンクのセレクタ候補を順に試す
-  const selectors = [
-    '[data-testid="tweet-text-show-more-link"]',
-    '[data-testid="tweetText"] [role="link"]',
-    '[data-testid="tweetText"] a',
-  ];
+  // 1. 専用の testid がある場合（最優先）
+  const dedicated = tweetElement.querySelector('[data-testid="tweet-text-show-more-link"]');
+  if (dedicated) {
+    dedicated.click();
+    await sleep(600);
+    return true;
+  }
 
-  for (const selector of selectors) {
-    const btn = tweetElement.querySelector(selector);
-    if (btn) {
-      const label = btn.textContent.trim();
-      // 「もっと見る」「Show more」のいずれかのテキストを持つ場合のみクリック
-      if (label.includes('もっと見る') || label.toLowerCase().includes('show more')) {
-        btn.click();
-        await sleep(600); // 展開を待つ
-        return true;
-      }
+  // 2. tweetText 内の全リンク・ロールリンクを走査してテキストで判定
+  //    querySelector では最初の1件しか取れないため querySelectorAll を使う
+  const candidates = tweetElement.querySelectorAll(
+    '[data-testid="tweetText"] a, [data-testid="tweetText"] [role="link"]'
+  );
+  for (const el of candidates) {
+    const label = el.textContent.trim();
+    if (label.includes('もっと見る') || label.toLowerCase().includes('show more')) {
+      el.click();
+      await sleep(600);
+      return true;
     }
   }
+
   return false;
 }
 
