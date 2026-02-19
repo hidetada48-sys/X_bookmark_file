@@ -369,8 +369,8 @@ async function fetchArticleContent(url) {
   );
 
   try {
-    await waitForTabLoad(tab.id, 15000);
-    await sleep(1500); // JS レンダリング追加待機
+    await waitForTabLoad(tab.id, 20000);
+    await sleep(3000); // JS レンダリング追加待機（X Notes は重いため長めに設定）
 
     let content = null;
     try {

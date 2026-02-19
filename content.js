@@ -237,9 +237,12 @@ async function extractTweetData(tweetElement) {
       data.url = href.startsWith('http') ? href : `https://x.com${href}`;
     }
 
-    // 記事カードのURLを取得（X 記事 / Articles）
+    // 記事カードのURLを取得（X Notes / Articles）
+    // /i/notes/ : X Notes（長文記事）の主要URL形式
+    // /i/article : X Articles 旧形式
+    // /articles/ : サブパス形式
     const articleLink = tweetElement.querySelector(
-      'a[href*="/i/article"], a[href*="/articles/"]'
+      'a[href*="/i/notes/"], a[href*="/i/article"], a[href*="/articles/"]'
     );
     if (articleLink) {
       const href = articleLink.getAttribute('href');
@@ -308,7 +311,7 @@ async function extractThread(tweetElement) {
 
 // X 記事ページから本文を抽出する
 async function extractArticleContent() {
-  await sleep(800); // JS レンダリング待ち
+  await sleep(2500); // JS レンダリング待ち（X Notes は重いため長めに設定）
 
   // タイトル（複数セレクタで試行）
   const title =
@@ -318,13 +321,17 @@ async function extractArticleContent() {
     document.title.split(' | ')[0].split(' / ')[0] ||
     '';
 
-  // 本文コンテナを複数セレクタで探す
+  // 本文コンテナを複数セレクタで探す（X Notes / Articles 両対応）
   const bodySelectors = [
     '[data-testid="article-body"]',
     '[data-testid="articleBody"]',
     '[data-testid="article-content"]',
     '[data-testid="article"]',
+    '[data-testid="noteContent"]',
+    '[data-testid="note-body"]',
     '[role="article"]',
+    'article',
+    'main',
   ];
 
   let bodyEl = null;
