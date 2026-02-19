@@ -4,7 +4,7 @@
 console.log('X Bookmark Saver: Background script loaded');
 
 // OAuth設定（ウェブ アプリケーション型）
-const CLIENT_ID = '1088639736607-aq5gaog56dogh31v1dd47g65duqv024a.apps.googleusercontent.com';
+const CLIENT_ID = '1088639736607-g9g7cn2gohatjr70h7cgnkoehgnvr002.apps.googleusercontent.com';
 const REDIRECT_URI = 'https://nnicjfdofkidimakgpfibnpdoaapoebj.chromiumapp.org/';
 const SCOPE = 'https://www.googleapis.com/auth/drive.file';
 
