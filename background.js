@@ -389,20 +389,34 @@ async function fetchArticleContent(url) {
 
 // タブのロード完了を Promise で待つ（タイムアウト付き）
 function waitForTabLoad(tabId, timeout = 15000) {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
+  return new Promise((resolve) => {
+    let resolved = false;
+    const done = () => {
+      if (resolved) return;
+      resolved = true;
+      clearTimeout(timer);
       chrome.tabs.onUpdated.removeListener(listener);
-      reject(new Error('記事タブのロードがタイムアウトしました'));
+      resolve();
+    };
+
+    const timer = setTimeout(() => {
+      console.warn('記事タブのロードがタイムアウトしました（処理を続行）');
+      done();
     }, timeout);
 
     const listener = (id, changeInfo) => {
       if (id === tabId && changeInfo.status === 'complete') {
-        clearTimeout(timer);
-        chrome.tabs.onUpdated.removeListener(listener);
-        resolve();
+        done();
       }
     };
     chrome.tabs.onUpdated.addListener(listener);
+
+    // リスナー登録前にすでに complete になっている場合の対策
+    chrome.tabs.get(tabId, (tab) => {
+      if (tab && tab.status === 'complete') {
+        done();
+      }
+    });
   });
 }
 

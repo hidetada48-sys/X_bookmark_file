@@ -6,7 +6,8 @@
   "description": "Xのブックマークした投稿をGoogle Driveに保存してNotebookLMで活用",
   "permissions": [
     "storage",
-    "identity"
+    "identity",
+    "tabs"
   ],
   "host_permissions": [
     "https://x.com/*",
