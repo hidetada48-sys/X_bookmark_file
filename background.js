@@ -99,8 +99,64 @@ function createMultipartBody(metadata, content, boundary) {
   return body;
 }
 
-// Google Driveにファイルをアップロード
-async function uploadToDrive(filename, content, mimeType) {
+// Google Driveにフォルダを作成
+async function createDriveFolder(folderName) {
+  try {
+    let accessToken = await getStoredToken();
+    if (!accessToken) {
+      throw new Error('認証が必要です。先にGoogle認証を行ってください');
+    }
+
+    const metadata = {
+      name: folderName,
+      mimeType: 'application/vnd.google-apps.folder'
+    };
+
+    let response = await fetch('https://www.googleapis.com/drive/v3/files', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(metadata)
+    });
+
+    if (response.status === 401) {
+      console.log('トークンが無効です。リフレッシュして再試行...');
+      accessToken = await refreshToken();
+      response = await fetch('https://www.googleapis.com/drive/v3/files', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(metadata)
+      });
+    }
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Drive API フォルダ作成エラー:', errorText);
+      throw new Error(`フォルダ作成に失敗しました: ${response.status} ${response.statusText}`);
+    }
+
+    const result = await response.json();
+    console.log('フォルダ作成成功:', result);
+
+    return {
+      folderId: result.id,
+      folderName: result.name,
+      folderUrl: `https://drive.google.com/drive/folders/${result.id}`
+    };
+
+  } catch (error) {
+    console.error('フォルダ作成エラー:', error);
+    throw error;
+  }
+}
+
+// Google Driveにファイルをアップロード（folderId 指定時はそのフォルダ内に保存）
+async function uploadToDrive(filename, content, mimeType, folderId = null) {
   try {
     let accessToken = await getStoredToken();
 
@@ -113,6 +169,9 @@ async function uploadToDrive(filename, content, mimeType) {
       name: filename,
       mimeType: mimeType
     };
+    if (folderId) {
+      metadata.parents = [folderId];
+    }
 
     // マルチパートボディを作成
     const boundary = '-------314159265358979323846264';
@@ -194,9 +253,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true; // 非同期レスポンスを有効化
   }
 
-  // Google Driveに保存
+  // Google Driveにフォルダを作成
+  if (message.action === 'createDriveFolder') {
+    const { name } = message;
+    if (!name) {
+      sendResponse({ success: false, error: 'フォルダ名が必要です' });
+      return true;
+    }
+    createDriveFolder(name)
+      .then(result => sendResponse({ success: true, ...result }))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
+
+  // Google Driveに保存（folderId 省略可）
   if (message.action === 'saveToDrive') {
-    const { filename, content, mimeType } = message;
+    const { filename, content, mimeType, folderId } = message;
 
     if (!filename || !content || !mimeType) {
       sendResponse({
@@ -206,7 +278,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true;
     }
 
-    uploadToDrive(filename, content, mimeType)
+    uploadToDrive(filename, content, mimeType, folderId || null)
       .then(result => {
         sendResponse({
           success: true,
@@ -223,6 +295,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       });
 
     return true; // 非同期レスポンスを有効化
+  }
+
+  // X 記事ページを背景タブで開いて本文を取得
+  if (message.action === 'fetchArticleContent') {
+    const { url } = message;
+    if (!url) {
+      sendResponse({ success: false, error: '記事URLが必要です' });
+      return true;
+    }
+    fetchArticleContent(url)
+      .then(content => sendResponse({ success: true, content }))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
   }
 
   // 収集済みIDを取得（ポップアップ起動時に呼ばれる）
@@ -275,6 +360,55 @@ async function saveCollectedIds(newIds) {
 // 収集履歴をリセット
 async function resetCollectedIds() {
   await chrome.storage.local.remove(['collectedTweetIds']);
+}
+
+// X 記事ページを非アクティブタブで開き本文を取得してタブを閉じる
+async function fetchArticleContent(url) {
+  const tab = await new Promise(resolve =>
+    chrome.tabs.create({ url, active: false }, resolve)
+  );
+
+  try {
+    await waitForTabLoad(tab.id, 15000);
+    await sleep(1500); // JS レンダリング追加待機
+
+    let content = null;
+    try {
+      const res = await chrome.tabs.sendMessage(tab.id, {
+        action: 'extractArticleContent'
+      });
+      if (res && res.success) content = res.content;
+    } catch (e) {
+      console.warn('記事コンテンツ取得失敗:', e.message);
+    }
+    return content;
+  } finally {
+    chrome.tabs.remove(tab.id);
+  }
+}
+
+// タブのロード完了を Promise で待つ（タイムアウト付き）
+function waitForTabLoad(tabId, timeout = 15000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      chrome.tabs.onUpdated.removeListener(listener);
+      reject(new Error('記事タブのロードがタイムアウトしました'));
+    }, timeout);
+
+    const listener = (id, changeInfo) => {
+      if (id === tabId && changeInfo.status === 'complete') {
+        clearTimeout(timer);
+        chrome.tabs.onUpdated.removeListener(listener);
+        resolve();
+      }
+    };
+    chrome.tabs.onUpdated.addListener(listener);
+  });
+}
+
+// スリープ
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 // 拡張機能インストール時

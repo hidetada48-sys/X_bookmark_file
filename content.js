@@ -237,6 +237,15 @@ async function extractTweetData(tweetElement) {
       data.url = href.startsWith('http') ? href : `https://x.com${href}`;
     }
 
+    // 記事カードのURLを取得（X 記事 / Articles）
+    const articleLink = tweetElement.querySelector(
+      'a[href*="/i/article"], a[href*="/articles/"]'
+    );
+    if (articleLink) {
+      const href = articleLink.getAttribute('href');
+      data.articleUrl = href.startsWith('http') ? href : `https://x.com${href}`;
+    }
+
     // エンゲージメント指標
     const metrics = {
       replies: tweetElement.querySelector('[data-testid="reply"]'),
@@ -297,6 +306,69 @@ async function extractThread(tweetElement) {
   return thread;
 }
 
+// X 記事ページから本文を抽出する
+async function extractArticleContent() {
+  await sleep(800); // JS レンダリング待ち
+
+  // タイトル（複数セレクタで試行）
+  const title =
+    document.querySelector('[data-testid="article-title"]')?.textContent?.trim() ||
+    document.querySelector('[data-testid="articleTitle"]')?.textContent?.trim() ||
+    document.querySelector('h1')?.textContent?.trim() ||
+    document.title.split(' | ')[0].split(' / ')[0] ||
+    '';
+
+  // 本文コンテナを複数セレクタで探す
+  const bodySelectors = [
+    '[data-testid="article-body"]',
+    '[data-testid="articleBody"]',
+    '[data-testid="article-content"]',
+    '[data-testid="article"]',
+    '[role="article"]',
+  ];
+
+  let bodyEl = null;
+  for (const sel of bodySelectors) {
+    const el = document.querySelector(sel);
+    if (el && el.textContent.trim().length > 100) {
+      bodyEl = el;
+      break;
+    }
+  }
+
+  const body = bodyEl
+    ? domToMarkdown(bodyEl)
+    : Array.from(document.querySelectorAll('p, h1, h2, h3'))
+        .map(el => el.textContent.trim())
+        .filter(t => t.length > 10)
+        .join('\n\n');
+
+  return { title, body };
+}
+
+// DOM要素をMarkdownテキストに変換（見出し・段落・リストを保持）
+function domToMarkdown(el) {
+  let text = '';
+  for (const node of el.childNodes) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      text += node.textContent;
+    } else if (/^H[1-6]$/.test(node.nodeName)) {
+      const lvl = parseInt(node.nodeName[1]);
+      text += '\n\n' + '#'.repeat(lvl) + ' ' + node.textContent.trim();
+    } else if (node.nodeName === 'P') {
+      const inner = domToMarkdown(node).trim();
+      if (inner) text += '\n\n' + inner;
+    } else if (node.nodeName === 'LI') {
+      text += '\n- ' + node.textContent.trim();
+    } else if (node.nodeName === 'BR') {
+      text += '\n';
+    } else {
+      text += domToMarkdown(node);
+    }
+  }
+  return text.trim();
+}
+
 // スリープ関数
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -317,6 +389,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .catch(error => {
         sendResponse({ success: false, error: error.message });
       });
+    return true;
+  }
+
+  // 記事ページから本文を抽出（background.js 経由で呼ばれる）
+  if (message.action === 'extractArticleContent') {
+    extractArticleContent()
+      .then(content => sendResponse({ success: true, content }))
+      .catch(error => sendResponse({ success: false, error: error.message }));
     return true;
   }
 });

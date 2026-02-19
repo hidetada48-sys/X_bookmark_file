@@ -144,8 +144,6 @@ elements.collectButton.addEventListener('click', async () => {
         updateStatus('新着なし（全て収集済み）');
       } else {
         addLog(`${collectedBookmarks.length}件の新規ブックマークを収集しました`, 'success');
-        updateStatus(`新規 ${collectedBookmarks.length}件収集完了`);
-        elements.exportButton.disabled = false;
         updateProgress(collectedBookmarks.length, collectedBookmarks.length);
 
         // 新しいIDをbackground.jsに保存
@@ -157,6 +155,34 @@ elements.collectButton.addEventListener('click', async () => {
           addLog(`収集済み合計: ${saveResponse.total}件`, 'info');
           window._collectedIds = [...collectedIds, ...newIds];
         }
+
+        // X 記事の本文を取得
+        const articlesWithUrl = collectedBookmarks.filter(b => b.articleUrl);
+        if (articlesWithUrl.length > 0) {
+          addLog(`X 記事を ${articlesWithUrl.length}件 検出。本文を取得中...`, 'info');
+          for (let i = 0; i < articlesWithUrl.length; i++) {
+            const bm = articlesWithUrl[i];
+            updateStatus(`記事本文を取得中... (${i + 1}/${articlesWithUrl.length}件)`, 'warning');
+            addLog(`記事取得中: ${bm.articleUrl}`, 'info');
+            try {
+              const artRes = await chrome.runtime.sendMessage({
+                action: 'fetchArticleContent',
+                url: bm.articleUrl
+              });
+              if (artRes.success && artRes.content) {
+                bm.articleContent = artRes.content;
+                addLog(`記事本文取得完了: ${artRes.content.title || '(タイトルなし)'}`, 'success');
+              } else {
+                addLog(`記事本文取得失敗: ${artRes.error || '不明なエラー'}`, 'error');
+              }
+            } catch (e) {
+              addLog(`記事本文取得エラー: ${e.message}`, 'error');
+            }
+          }
+        }
+
+        updateStatus(`新規 ${collectedBookmarks.length}件収集完了`);
+        elements.exportButton.disabled = false;
       }
     } else {
       throw new Error(response.error || '収集に失敗しました');
@@ -169,7 +195,7 @@ elements.collectButton.addEventListener('click', async () => {
   }
 });
 
-// エクスポート
+// エクスポート（1件1ファイル、収集日フォルダに格納）
 elements.exportButton.addEventListener('click', async () => {
   try {
     if (collectedBookmarks.length === 0) {
@@ -182,34 +208,49 @@ elements.exportButton.addEventListener('click', async () => {
 
     const format = elements.format.value;
 
-    // データを整形
-    const formattedData = formatBookmarks(collectedBookmarks, format);
+    // 収集日フォルダを作成
+    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    const folderName = `x-bookmarks-${today}`;
+    addLog(`フォルダを作成中: ${folderName}`, 'info');
 
-    // ファイル名の生成
-    const timestamp = new Date().toISOString().replace(/:/g, '-').split('.')[0];
-    const extension = format === 'markdown' ? 'md' : format;
-    const filename = `x-bookmarks-${timestamp}.${extension}`;
-
-    // Google Driveに保存
-    const response = await chrome.runtime.sendMessage({
-      action: 'saveToDrive',
-      filename,
-      content: formattedData,
-      mimeType: getMimeType(format)
+    const folderRes = await chrome.runtime.sendMessage({
+      action: 'createDriveFolder',
+      name: folderName
     });
-
-    if (response.success) {
-      addLog(`Google Driveに保存しました: ${filename}`, 'success');
-      updateStatus('エクスポート完了');
-
-      // ファイルIDがある場合はリンクを表示
-      if (response.fileId) {
-        const link = `https://drive.google.com/file/d/${response.fileId}/view`;
-        addLog(`ファイルURL: ${link}`, 'info');
-      }
-    } else {
-      throw new Error(response.error || '保存に失敗しました');
+    if (!folderRes.success) {
+      throw new Error(folderRes.error || 'フォルダ作成に失敗しました');
     }
+    const { folderId, folderUrl } = folderRes;
+    addLog(`フォルダ作成完了: ${folderName}`, 'success');
+
+    // 1件ずつファイルを作成してフォルダに保存
+    let successCount = 0;
+    for (let i = 0; i < collectedBookmarks.length; i++) {
+      const bookmark = collectedBookmarks[i];
+      const fileContent = formatSingleBookmark(bookmark, format);
+      const filename = makeFilename(bookmark, i + 1, format);
+
+      updateStatus(`保存中... (${i + 1}/${collectedBookmarks.length}件)`, 'warning');
+
+      const res = await chrome.runtime.sendMessage({
+        action: 'saveToDrive',
+        filename,
+        content: fileContent,
+        mimeType: getMimeType(format),
+        folderId
+      });
+
+      if (res.success) {
+        successCount++;
+        addLog(`保存: ${filename}`, 'success');
+      } else {
+        addLog(`保存失敗: ${filename} — ${res.error}`, 'error');
+      }
+    }
+
+    updateStatus(`${successCount}/${collectedBookmarks.length}件 保存完了`);
+    addLog(`Google Drive フォルダ: ${folderUrl}`, 'info');
+
   } catch (error) {
     addLog(`エクスポートエラー: ${error.message}`, 'error');
     updateStatus('エクスポート失敗', 'error');
@@ -218,7 +259,93 @@ elements.exportButton.addEventListener('click', async () => {
   }
 });
 
-// ブックマークをフォーマット
+// 1件のブックマークをフォーマット
+function formatSingleBookmark(bookmark, format) {
+  if (format === 'markdown') return formatSingleAsMarkdown(bookmark);
+  if (format === 'json') return JSON.stringify(bookmark, null, 2);
+  return formatSingleAsText(bookmark);
+}
+
+// 1件用ファイル名を生成（例: 001_johndoe_2026-01-15.md）
+function makeFilename(bookmark, index, format) {
+  const ext = format === 'markdown' ? 'md' : format;
+  const username = (bookmark.author.username || 'unknown')
+    .replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 30);
+  const date = bookmark.timestamp
+    ? new Date(bookmark.timestamp).toISOString().split('T')[0]
+    : 'no-date';
+  const idx = String(index).padStart(3, '0');
+  return `${idx}_${username}_${date}.${ext}`;
+}
+
+// 1件を Markdown 形式でフォーマット
+function formatSingleAsMarkdown(bookmark) {
+  let md = `# ${bookmark.author.name || ''}（@${bookmark.author.username || ''}）\n\n`;
+
+  const meta = [];
+  if (bookmark.timestamp) {
+    const d = new Date(bookmark.timestamp);
+    meta.push(`投稿日時: ${isNaN(d) ? bookmark.timestamp : d.toLocaleString('ja-JP')}`);
+  }
+  if (bookmark.url) meta.push(`URL: ${bookmark.url}`);
+
+  const m = bookmark.metrics || {};
+  const metricParts = [];
+  if (m.replies  != null) metricParts.push(`返信 ${m.replies}`);
+  if (m.retweets != null) metricParts.push(`RT ${m.retweets}`);
+  if (m.likes    != null) metricParts.push(`いいね ${m.likes}`);
+  if (m.views    != null) metricParts.push(`閲覧 ${m.views}`);
+  if (metricParts.length > 0) meta.push(metricParts.join(' / '));
+  meta.forEach(line => { md += `- ${line}\n`; });
+  md += '\n';
+
+  if (bookmark.text) md += `${bookmark.text}\n\n`;
+
+  // X 記事本文
+  if (bookmark.articleContent) {
+    const { title, body } = bookmark.articleContent;
+    md += `## 記事全文: ${title || '(タイトルなし)'}\n\n${body}\n\n`;
+  }
+
+  // スレッド
+  if (bookmark.thread && bookmark.thread.length > 0) {
+    md += `## スレッド（${bookmark.thread.length}件）\n\n`;
+    bookmark.thread.forEach(tweet => {
+      md += `> **${tweet.author}**`;
+      if (tweet.url) md += ` — [リンク](${tweet.url})`;
+      md += `\n>\n> ${tweet.text}\n\n`;
+    });
+  }
+
+  if (bookmark.url) md += `[元の投稿を見る](${bookmark.url})\n`;
+
+  return md;
+}
+
+// 1件をテキスト形式でフォーマット
+function formatSingleAsText(bookmark) {
+  let text = `${bookmark.author.name || ''} (@${bookmark.author.username || ''})\n`;
+  if (bookmark.timestamp) text += `投稿日時: ${bookmark.timestamp}\n`;
+  if (bookmark.url) text += `URL: ${bookmark.url}\n`;
+  text += '\n';
+  if (bookmark.text) text += `${bookmark.text}\n\n`;
+
+  if (bookmark.articleContent) {
+    const { title, body } = bookmark.articleContent;
+    text += `[記事全文: ${title || ''}]\n${body}\n\n`;
+  }
+
+  if (bookmark.thread && bookmark.thread.length > 0) {
+    text += `スレッド: ${bookmark.thread.length}件\n`;
+    bookmark.thread.forEach((tweet, i) => {
+      text += `  [${i + 1}] ${tweet.author}: ${tweet.text}\n`;
+    });
+  }
+
+  return text;
+}
+
+// ブックマークをフォーマット（一括出力用、内部利用）
 function formatBookmarks(bookmarks, format) {
   if (format === 'markdown') {
     return formatAsMarkdown(bookmarks);
