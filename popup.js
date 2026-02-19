@@ -257,8 +257,10 @@ function formatAsMarkdown(bookmarks) {
     // スレッド
     if (bookmark.thread && bookmark.thread.length > 0) {
       md += `### スレッド（${bookmark.thread.length}件）\n\n`;
-      bookmark.thread.forEach((tweet, i) => {
-        md += `> **${tweet.author}**\n> ${tweet.text}\n\n`;
+      bookmark.thread.forEach((tweet) => {
+        md += `> **${tweet.author}**`;
+        if (tweet.url) md += ` — [リンク](${tweet.url})`;
+        md += `\n>\n> ${tweet.text}\n\n`;
       });
     }
 

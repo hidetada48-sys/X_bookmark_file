@@ -260,32 +260,30 @@ async function extractTweetData(tweetElement) {
   }
 }
 
-// スレッドを抽出（簡易版）
+// 同一セル内の連続スレッドを抽出
 async function extractThread(tweetElement) {
   const thread = [];
 
   try {
-    // 「このスレッドを表示」ボタンを探す
-    const showThreadButton = tweetElement.querySelector('[role="button"]');
-    if (showThreadButton && showThreadButton.textContent.includes('このスレッド')) {
-      // ボタンをクリックしてスレッドを展開
-      // 注: 実際の実装ではツイート詳細ページを開く必要がある場合があります
+    // cellInnerDiv 内に複数の article が存在する場合、連続スレッドとみなす
+    const cell = tweetElement.closest('[data-testid="cellInnerDiv"]');
+    if (!cell) return thread;
 
-      // 現在表示されている関連ツイートを取得
-      const parentElement = tweetElement.closest('[data-testid="cellInnerDiv"]');
-      if (parentElement) {
-        const threadTweets = parentElement.querySelectorAll('article[data-testid="tweet"]');
-        threadTweets.forEach(tweet => {
-          if (tweet !== tweetElement) {
-            const tweetData = extractTweetData(tweet);
-            if (tweetData) {
-              thread.push({
-                author: `${tweetData.author.name} (@${tweetData.author.username})`,
-                text: tweetData.text,
-                timestamp: tweetData.timestamp
-              });
-            }
-          }
+    const siblings = cell.querySelectorAll('article[data-testid="tweet"]');
+    if (siblings.length <= 1) return thread;
+
+    for (const sibling of siblings) {
+      if (sibling === tweetElement) continue;
+      // スレッド内の他ツイートは data-processed を付けてメイン収集でスキップさせる
+      sibling.setAttribute('data-processed', 'true');
+
+      const tweetData = await extractTweetData(sibling);
+      if (tweetData) {
+        thread.push({
+          author: `${tweetData.author.name || ''} (@${tweetData.author.username || ''})`,
+          text: tweetData.text,
+          timestamp: tweetData.timestamp,
+          url: tweetData.url
         });
       }
     }
