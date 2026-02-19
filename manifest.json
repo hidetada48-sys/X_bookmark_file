@@ -1,6 +1,7 @@
 {
   "manifest_version": 3,
   "name": "X Bookmark to Drive Saver",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuOyOpRvUjWUYBMXfVADYuz2bY5bTbVa2VVM1j//Zec43FeQEO3fMCo/iemI01FYTHkcbafiVzQGcSMnkbkXuoZyx64x+pZB6OK1xwQWgsla2m9fSrTMLOqrAxKI25qzthtSllhCM3XcwBorhO+eLoRvhK7SIzC8ZihslSYNBpELxhDLzLNp+LhtegVGx9vHv2U3GkgW273FJ44NlF38RxXYKsqZebAak5zXtiihPHMMWj+vOjIs9B5WqSjDpFXXULkvlSOUBwTtFCjiKQCUF//I52y/lm4GMRoI2w0mlSt2qmiXjuw+GE6GdGdp9QiIlEicuJivYjLNh2Oqm5d+6rQIDAQAB",
   "version": "1.0.0",
   "description": "Xのブックマークした投稿をGoogle Driveに保存してNotebookLMで活用",
   "permissions": [
