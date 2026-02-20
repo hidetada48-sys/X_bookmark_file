@@ -195,9 +195,42 @@ async function extractTweetData(tweetElement) {
 
     // 「さらに表示」を展開してから本文を取得
     await expandShowMore(tweetElement);
-    const tweetTextElement = tweetElement.querySelector('[data-testid="tweetText"]');
+
+    // ツイート本文を複数のセレクタで試行
+    const textSelectors = [
+      '[data-testid="tweetText"]',
+      '[lang] > span',  // 言語指定されたスパン
+      '.css-1jxf684',   // CSSクラス
+      '[dir="auto"]'    // 自動方向指定
+    ];
+
+    let tweetTextElement = null;
+    for (const selector of textSelectors) {
+      const el = tweetElement.querySelector(selector);
+      if (el && el.textContent.trim().length > 0) {
+        tweetTextElement = el;
+        break;
+      }
+    }
+
     if (tweetTextElement) {
-      data.text = tweetTextElement.textContent;
+      data.text = tweetTextElement.textContent.trim();
+      console.log('ツイート本文取得:', data.text.substring(0, 50) + '...');
+    } else {
+      console.warn('ツイート本文が見つかりません。article内の全テキストを取得します');
+      // フォールバック: article内の全テキストから不要部分を除外
+      const allText = tweetElement.textContent || '';
+      const lines = allText.split('\n').filter(line => {
+        const trimmed = line.trim();
+        return trimmed.length > 20 &&
+               !trimmed.match(/^[\d,]+$/) &&  // 数字のみの行を除外
+               !trimmed.includes('·') &&       // メタデータ区切り
+               !trimmed.startsWith('@');       // ユーザー名のみの行
+      });
+      if (lines.length > 0) {
+        data.text = lines[0].trim();
+        console.log('フォールバックでツイート本文取得:', data.text.substring(0, 50) + '...');
+      }
     }
 
     // タイムスタンプ
@@ -241,12 +274,73 @@ async function extractTweetData(tweetElement) {
     // /i/notes/ : X Notes（長文記事）の主要URL形式
     // /i/article : X Articles 旧形式
     // /articles/ : サブパス形式
-    const articleLink = tweetElement.querySelector(
-      'a[href*="/i/notes/"], a[href*="/i/article"], a[href*="/articles/"]'
-    );
+    const articleSelectors = [
+      'a[href*="/i/notes/"]',
+      'a[href*="/i/article"]',
+      'a[href*="/articles/"]',
+      '[data-testid="card.layoutLarge.media"] a',  // カード型記事
+      '[data-testid="card.layoutSmall.media"] a',  // 小型カード
+      'a[role="link"][href*="x.com/i/"]'           // 汎用
+    ];
+
+    let articleLink = null;
+    for (const selector of articleSelectors) {
+      const el = tweetElement.querySelector(selector);
+      if (el) {
+        const href = el.getAttribute('href');
+        if (href && (href.includes('/i/notes/') || href.includes('/i/article') || href.includes('/articles/'))) {
+          articleLink = el;
+          break;
+        }
+      }
+    }
+
     if (articleLink) {
       const href = articleLink.getAttribute('href');
       data.articleUrl = href.startsWith('http') ? href : `https://x.com${href}`;
+      console.log('X記事URL検出:', data.articleUrl);
+
+      // 記事カードのタイトルと説明文を取得
+      const cardContainer = articleLink.closest('[data-testid^="card.layout"]') || articleLink.closest('[role="link"]');
+      if (cardContainer) {
+        // タイトル
+        const titleEl = cardContainer.querySelector('[role="heading"]') || cardContainer.querySelector('h2, h3');
+        if (titleEl) {
+          data.articleTitle = titleEl.textContent.trim();
+          console.log('記事タイトル:', data.articleTitle);
+        }
+
+        // 説明文（カード内の本文）
+        const descSelectors = [
+          '[data-testid="card.layoutLarge.detail"] > div > span',
+          '[data-testid="card.layoutSmall.detail"] > div > span',
+          '[role="link"] span[dir="auto"]',
+          'div[dir="ltr"] > span'
+        ];
+        for (const selector of descSelectors) {
+          const descEl = cardContainer.querySelector(selector);
+          if (descEl && descEl.textContent.trim().length > 20) {
+            data.articleSummary = descEl.textContent.trim();
+            console.log('記事説明文:', data.articleSummary.substring(0, 50) + '...');
+            // textが空の場合、記事説明文をtextとして使用
+            if (!data.text || data.text.length < 10) {
+              data.text = data.articleSummary;
+            }
+            break;
+          }
+        }
+      }
+    } else {
+      // フォールバック: article内の全リンクを検索
+      const allLinks = tweetElement.querySelectorAll('a[href]');
+      for (const link of allLinks) {
+        const href = link.getAttribute('href');
+        if (href && (href.includes('/i/notes/') || href.includes('/i/article') || href.includes('/articles/'))) {
+          data.articleUrl = href.startsWith('http') ? href : `https://x.com${href}`;
+          console.log('X記事URL検出（フォールバック）:', data.articleUrl);
+          break;
+        }
+      }
     }
 
     // エンゲージメント指標

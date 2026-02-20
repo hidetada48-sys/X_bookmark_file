@@ -248,7 +248,15 @@ function formatSingleAsMarkdown(bookmark) {
 
   if (bookmark.text) md += `${bookmark.text}\n\n`;
 
-  // X 記事本文
+  // X 記事（カード情報）
+  if (bookmark.articleTitle || bookmark.articleSummary || bookmark.articleUrl) {
+    md += `## X記事\n\n`;
+    if (bookmark.articleTitle) md += `**タイトル**: ${bookmark.articleTitle}\n\n`;
+    if (bookmark.articleSummary) md += `**要約**: ${bookmark.articleSummary}\n\n`;
+    if (bookmark.articleUrl) md += `[記事を読む](${bookmark.articleUrl})\n\n`;
+  }
+
+  // X 記事本文（fetchArticleContentで取得した全文）
   if (bookmark.articleContent) {
     const { title, body } = bookmark.articleContent;
     md += `## 記事全文: ${title || '(タイトルなし)'}\n\n${body}\n\n`;
@@ -276,6 +284,14 @@ function formatSingleAsText(bookmark) {
   if (bookmark.url) text += `URL: ${bookmark.url}\n`;
   text += '\n';
   if (bookmark.text) text += `${bookmark.text}\n\n`;
+
+  if (bookmark.articleTitle || bookmark.articleSummary || bookmark.articleUrl) {
+    text += `[X記事]\n`;
+    if (bookmark.articleTitle) text += `タイトル: ${bookmark.articleTitle}\n`;
+    if (bookmark.articleSummary) text += `要約: ${bookmark.articleSummary}\n`;
+    if (bookmark.articleUrl) text += `URL: ${bookmark.articleUrl}\n`;
+    text += `\n`;
+  }
 
   if (bookmark.articleContent) {
     const { title, body } = bookmark.articleContent;
@@ -339,6 +355,20 @@ function formatAsMarkdown(bookmarks) {
       md += `${bookmark.text}\n\n`;
     }
 
+    // X 記事（カード情報）
+    if (bookmark.articleTitle || bookmark.articleSummary || bookmark.articleUrl) {
+      md += `### X記事\n\n`;
+      if (bookmark.articleTitle) md += `**タイトル**: ${bookmark.articleTitle}\n\n`;
+      if (bookmark.articleSummary) md += `**要約**: ${bookmark.articleSummary}\n\n`;
+      if (bookmark.articleUrl) md += `[記事を読む](${bookmark.articleUrl})\n\n`;
+    }
+
+    // X 記事本文（fetchArticleContentで取得した全文）
+    if (bookmark.articleContent) {
+      const { title, body } = bookmark.articleContent;
+      md += `### 記事全文: ${title || '(タイトルなし)'}\n\n${body}\n\n`;
+    }
+
     // スレッド
     if (bookmark.thread && bookmark.thread.length > 0) {
       md += `### スレッド（${bookmark.thread.length}件）\n\n`;
@@ -373,6 +403,19 @@ function formatAsText(bookmarks, includeImages) {
 
     if (bookmark.text) {
       text += `${bookmark.text}\n\n`;
+    }
+
+    if (bookmark.articleTitle || bookmark.articleSummary || bookmark.articleUrl) {
+      text += `[X記事]\n`;
+      if (bookmark.articleTitle) text += `タイトル: ${bookmark.articleTitle}\n`;
+      if (bookmark.articleSummary) text += `要約: ${bookmark.articleSummary}\n`;
+      if (bookmark.articleUrl) text += `URL: ${bookmark.articleUrl}\n`;
+      text += `\n`;
+    }
+
+    if (bookmark.articleContent) {
+      const { title, body } = bookmark.articleContent;
+      text += `[記事全文: ${title || ''}]\n${body}\n\n`;
     }
 
     if (includeImages && bookmark.images && bookmark.images.length > 0) {
