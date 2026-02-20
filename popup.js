@@ -5,8 +5,6 @@ let isAuthenticated = false;
 // DOM要素の取得
 const elements = {
   status: document.getElementById('status'),
-  authButton: document.getElementById('authButton'),
-  authStatus: document.getElementById('authStatus'),
   collectButton: document.getElementById('collectButton'),
   exportButton: document.getElementById('exportButton'),
   limitMode: document.getElementById('limitMode'),
@@ -56,34 +54,6 @@ function updateProgress(current, total) {
   elements.progressFill.style.width = `${percent}%`;
   elements.progressText.textContent = `${current} / ${total}`;
 }
-
-// Google認証
-elements.authButton.addEventListener('click', async () => {
-  try {
-    addLog('Google認証を開始...', 'info');
-    elements.authButton.disabled = true;
-
-    const response = await chrome.runtime.sendMessage({
-      action: 'authenticate'
-    });
-
-    if (response.success) {
-      isAuthenticated = true;
-      elements.authStatus.textContent = '✓ 認証済み';
-      elements.authButton.textContent = '再認証';
-      elements.collectButton.disabled = false;
-      addLog('Google認証に成功しました', 'success');
-      updateStatus('認証済み');
-    } else {
-      throw new Error(response.error || '認証に失敗しました');
-    }
-  } catch (error) {
-    addLog(`認証エラー: ${error.message}`, 'error');
-    updateStatus('認証失敗', 'error');
-  } finally {
-    elements.authButton.disabled = false;
-  }
-});
 
 // ブックマーク収集
 elements.collectButton.addEventListener('click', async () => {
@@ -195,65 +165,42 @@ elements.collectButton.addEventListener('click', async () => {
   }
 });
 
-// エクスポート（1件1ファイル、収集日フォルダに格納）
+// エクスポート（ローカルダウンロード：1件1ファイル）
 elements.exportButton.addEventListener('click', async () => {
   try {
     if (collectedBookmarks.length === 0) {
       throw new Error('収集したブックマークがありません');
     }
 
-    addLog('エクスポートを開始...', 'info');
+    addLog('ダウンロードを開始...', 'info');
     elements.exportButton.disabled = true;
-    updateStatus('エクスポート中...', 'warning');
+    updateStatus('ダウンロード中...', 'warning');
 
     const format = elements.format.value;
 
-    // 収集日フォルダを作成
-    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-    const folderName = `x-bookmarks-${today}`;
-    addLog(`フォルダを作成中: ${folderName}`, 'info');
-
-    const folderRes = await chrome.runtime.sendMessage({
-      action: 'createDriveFolder',
-      name: folderName
-    });
-    if (!folderRes.success) {
-      throw new Error(folderRes.error || 'フォルダ作成に失敗しました');
-    }
-    const { folderId, folderUrl } = folderRes;
-    addLog(`フォルダ作成完了: ${folderName}`, 'success');
-
-    // 1件ずつファイルを作成してフォルダに保存
-    let successCount = 0;
+    // 1件ずつダウンロード
     for (let i = 0; i < collectedBookmarks.length; i++) {
       const bookmark = collectedBookmarks[i];
       const fileContent = formatSingleBookmark(bookmark, format);
       const filename = makeFilename(bookmark, i + 1, format);
 
-      updateStatus(`保存中... (${i + 1}/${collectedBookmarks.length}件)`, 'warning');
+      updateStatus(`ダウンロード中... (${i + 1}/${collectedBookmarks.length}件)`, 'warning');
 
-      const res = await chrome.runtime.sendMessage({
-        action: 'saveToDrive',
-        filename,
-        content: fileContent,
-        mimeType: getMimeType(format),
-        folderId
-      });
+      // ローカルダウンロード
+      downloadFile(filename, fileContent, getMimeType(format));
 
-      if (res.success) {
-        successCount++;
-        addLog(`保存: ${filename}`, 'success');
-      } else {
-        addLog(`保存失敗: ${filename} — ${res.error}`, 'error');
-      }
+      // ブラウザの処理待ち（連続ダウンロードの間隔）
+      await sleep(100);
+
+      addLog(`ダウンロード: ${filename}`, 'success');
     }
 
-    updateStatus(`${successCount}/${collectedBookmarks.length}件 保存完了`);
-    addLog(`Google Drive フォルダ: ${folderUrl}`, 'info');
+    updateStatus(`${collectedBookmarks.length}件 ダウンロード完了`);
+    addLog(`ダウンロードフォルダを確認してください`, 'info');
 
   } catch (error) {
-    addLog(`エクスポートエラー: ${error.message}`, 'error');
-    updateStatus('エクスポート失敗', 'error');
+    addLog(`ダウンロードエラー: ${error.message}`, 'error');
+    updateStatus('ダウンロード失敗', 'error');
   } finally {
     elements.exportButton.disabled = false;
   }
@@ -464,16 +411,8 @@ function getMimeType(format) {
   return mimeTypes[format] || 'text/plain';
 }
 
-// 初期化時に認証状態と収集済み件数をチェック
+// 初期化時に収集済み件数をチェック
 async function initialize() {
-  // 認証状態チェック
-  const stored = await chrome.storage.local.get(['accessToken']);
-  if (stored.accessToken) {
-    isAuthenticated = true;
-    elements.authStatus.textContent = '✓ 認証済み';
-    elements.collectButton.disabled = false;
-  }
-
   // 収集済みIDの件数を表示
   const response = await chrome.runtime.sendMessage({ action: 'getCollectedIds' });
   if (response.success) {
@@ -482,7 +421,7 @@ async function initialize() {
       updateStatus(`収集済み: ${count}件 / 未収集分のみ取得します`);
       addLog(`収集済みブックマーク: ${count}件`, 'info');
     } else {
-      updateStatus('初回収集 - 全ブックマークを取得します');
+      updateStatus('準備完了 - ブックマークページで「収集」を実行してください');
     }
     // 件数をグローバルに保持
     window._collectedIds = response.ids;
@@ -511,3 +450,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     addLog(`進捗: ${message.current}/${message.total}`, 'info');
   }
 });
+
+// ファイルダウンロード関数
+function downloadFile(filename, content, mimeType) {
+  const blob = new Blob([content], { type: mimeType || 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// スリープ関数
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
